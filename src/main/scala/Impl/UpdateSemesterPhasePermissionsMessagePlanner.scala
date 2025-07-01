@@ -1,20 +1,18 @@
 package Impl
 
 
+import Utils.SemesterPhaseProcess.{validateAdminToken, recordAdminOperationLog}
+import Objects.SemesterPhaseService.Permissions
 import Common.API.{PlanContext, Planner}
-import Common.DBAPI._
 import Common.Object.SqlParameter
 import Common.ServiceUtils.schemaName
-import Objects.SemesterPhaseService.Permissions
-import Objects.SystemLogService.SystemLogEntry
-import Utils.SemesterPhaseProcess.{validateAdminToken, recordAdminOperationLog}
 import cats.effect.IO
 import org.slf4j.LoggerFactory
-import io.circe.Json
 import io.circe._
 import io.circe.generic.auto._
-import org.joda.time.DateTime
 import cats.implicits.*
+import org.joda.time.DateTime
+import Common.DBAPI._
 import Common.Serialize.CustomColumnTypes.{decodeDateTime, encodeDateTime}
 import io.circe._
 import io.circe.syntax._
@@ -28,118 +26,110 @@ import Common.Object.SqlParameter
 import Common.Serialize.CustomColumnTypes.{decodeDateTime,encodeDateTime}
 import Common.ServiceUtils.schemaName
 import Utils.SemesterPhaseProcess.validateAdminToken
+import Objects.SystemLogService.SystemLogEntry
 import Utils.SemesterPhaseProcess.recordAdminOperationLog
 import io.circe.syntax._
 import Common.Serialize.CustomColumnTypes.{decodeDateTime,encodeDateTime}
 import Utils.SemesterPhaseProcess.recordAdminOperationLog
 
 case class UpdateSemesterPhasePermissionsMessagePlanner(
-                                                         adminToken: String,
-                                                         allowTeacherManage: Boolean,
-                                                         allowStudentSelect: Boolean,
-                                                         allowStudentDrop: Boolean,
-                                                         allowStudentEvaluate: Boolean,
-                                                         override val planContext: PlanContext
-                                                       ) extends Planner[Permissions] {
-
+    adminToken: String,
+    allowTeacherManage: Boolean,
+    allowStudentSelect: Boolean,
+    allowStudentDrop: Boolean,
+    allowStudentEvaluate: Boolean,
+    override val planContext: PlanContext
+) extends Planner[Permissions] {
   private val logger = LoggerFactory.getLogger(this.getClass.getSimpleName + "_" + planContext.traceID.id)
 
-  override def plan(using planContext: PlanContext): IO[Permissions] = {
+  override def plan(using PlanContext): IO[Permissions] = {
     for {
-      // Step 1: Validate adminToken
-      _ <- IO(logger.info(s"验证管理员 Token: ${adminToken}"))
+      _ <- IO(logger.info("开始执行 UpdateSemesterPhasePermissions API"))
+
+      // Step 1: 验证 adminToken 是否有效
       isAdminTokenValid <- validateAdminToken(adminToken)
-      _ <- if (!isAdminTokenValid) IO.raiseError(new IllegalArgumentException("管理员 Token 无效")) else IO(logger.info("管理员 Token 验证通过"))
+      _ <- if (!isAdminTokenValid) IO.raiseError(new IllegalArgumentException("管理员Token无效")) 
+           else IO(logger.info(s"管理员Token验证通过: ${adminToken}"))
 
-      // Step 2: Ensure the permissions are allowed in the current phase
-      _ <- IO(logger.info("检查阶段权限是否允许"))
-      currentPhase <- getCurrentPhase
-      _ <- validatePermissions(currentPhase)
+      // Step 2: 获取当前阶段
+      currentPhase <- getCurrentPhase()
+      _ <- IO(logger.info(s"当前学期阶段为: ${currentPhase}"))
 
-      // Step 3: Update permissions in the database
-      _ <- IO(logger.info("更新学期阶段权限"))
-      _ <- updatePhasePermissions()
+      // Step 2.1 & 2.2: 验证权限在当前阶段是否允许开启
+      _ <- validatePermissionByPhase(currentPhase)
 
-      // Step 4: Retrieve updated permissions and return as a Permissions object
-      _ <- IO(logger.info("获取更新后的学期阶段权限"))
+      // Step 3: 更新 SemesterPhaseTable 中的权限字段
+      _ <- updateSemesterPhaseTable()
+
+      // Step 4: 封装更新后的权限字段为 Permissions 对象并返回
       updatedPermissions <- getUpdatedPermissions()
+      _ <- IO(logger.info(s"更新后的权限为: ${updatedPermissions}"))
 
-      // Step 5: Record the admin operation log
-      _ <- IO(logger.info("记录管理员权限变更操作日志"))
-      _ <- recordAdminOperationLog(
-        "UpdatePermissions",
-        s"允许教师管理: ${allowTeacherManage}, 允许学生选课: ${allowStudentSelect}, 允许学生退课: ${allowStudentDrop}, 允许学生评价: ${allowStudentEvaluate}"
-      )
-
+      // Step 5: 记录权限变更操作的日志
+      _ <- recordPermissionsChangeLog(updatedPermissions)
     } yield updatedPermissions
   }
 
-  private def getCurrentPhase(using PlanContext): IO[Int] = {
+  private def getCurrentPhase()(using PlanContext): IO[Int] = {
     val sql = s"SELECT current_phase FROM ${schemaName}.semester_phase_table LIMIT 1;"
-    for {
-      _ <- IO(logger.info("从数据库中读取当前阶段"))
-      currentPhase <- readDBInt(sql, List())
-    } yield currentPhase
+    readDBInt(sql, List.empty).flatTap(phase => IO(logger.info(s"从数据库获取到的当前阶段是: ${phase}")))
   }
 
-  private def validatePermissions(currentPhase: Int)(using PlanContext): IO[Unit] = {
-    IO {
-      logger.info(s"当前阶段: ${currentPhase}")
-      if (currentPhase == 1 && allowStudentEvaluate) {
-        logger.error("试图开启当前阶段不允许的权限: allowStudentEvaluate")
-        throw new IllegalArgumentException("试图开启当前阶段不允许的权限")
-      }
-      if (currentPhase == 2 && allowTeacherManage) {
-        logger.error("试图开启当前阶段不允许的权限: allowTeacherManage")
-        throw new IllegalArgumentException("试图开启当前阶段不允许的权限")
-      }
+  private def validatePermissionByPhase(currentPhase: Int)(using PlanContext): IO[Unit] = {
+    val errorMessage = currentPhase match {
+      case 1 if allowStudentEvaluate =>
+        "试图开启当前阶段不允许的权限: allowStudentEvaluate 在阶段1不可开启"
+      case 2 if allowTeacherManage =>
+        "试图开启当前阶段不允许的权限: allowTeacherManage 在阶段2不可开启"
+      case _ =>
+        ""
     }
+
+    if (errorMessage.nonEmpty) IO.raiseError(new IllegalArgumentException(errorMessage))
+    else IO(logger.info("权限验证通过"))
   }
 
-  private def updatePhasePermissions()(using PlanContext): IO[Unit] = {
+  private def updateSemesterPhaseTable()(using PlanContext): IO[Unit] = {
     val sql =
       s"""
-UPDATE ${schemaName}.semester_phase_table 
-SET 
-  allow_teacher_manage = ?, 
-  allow_student_select = ?, 
-  allow_student_drop = ?, 
-  allow_student_evaluate = ?
-WHERE current_phase = (SELECT current_phase FROM ${schemaName}.semester_phase_table LIMIT 1);
-       """.stripMargin
-
+         UPDATE ${schemaName}.semester_phase_table
+         SET allow_teacher_manage = ?, 
+             allow_student_select = ?, 
+             allow_student_drop = ?, 
+             allow_student_evaluate = ?;
+         """.stripMargin
+         
     val parameters = List(
-      SqlParameter("Boolean", allowTeacherManage.asJson.noSpaces),
-      SqlParameter("Boolean", allowStudentSelect.asJson.noSpaces),
-      SqlParameter("Boolean", allowStudentDrop.asJson.noSpaces),
-      SqlParameter("Boolean", allowStudentEvaluate.asJson.noSpaces)
+      SqlParameter("Boolean", allowTeacherManage.toString),
+      SqlParameter("Boolean", allowStudentSelect.toString),
+      SqlParameter("Boolean", allowStudentDrop.toString),
+      SqlParameter("Boolean", allowStudentEvaluate.toString)
     )
-
-    for {
-      _ <- IO(logger.info("准备执行数据库更新语句"))
-      result <- writeDB(sql, parameters)
-      _ <- IO(logger.info(s"数据库更新成功，结果: ${result}"))
-    } yield ()
+    
+    writeDB(sql, parameters).flatTap(_ => IO(logger.info("数据库更新成功")))
   }
 
   private def getUpdatedPermissions()(using PlanContext): IO[Permissions] = {
-    val sql =
-      s"""
-SELECT allow_teacher_manage, allow_student_select, allow_student_drop, allow_student_evaluate
-FROM ${schemaName}.semester_phase_table
-LIMIT 1;
-       """.stripMargin
-
-    for {
-      _ <- IO(logger.info("读取更新后的权限信息"))
-      json <- readDBJson(sql, List())
-      updatedPermissions = Permissions(
+    val sql = s"SELECT * FROM ${schemaName}.semester_phase_table LIMIT 1;"
+    readDBJson(sql, List.empty).map { json => 
+      Permissions(
         allowTeacherManage = decodeField[Boolean](json, "allow_teacher_manage"),
         allowStudentSelect = decodeField[Boolean](json, "allow_student_select"),
         allowStudentDrop = decodeField[Boolean](json, "allow_student_drop"),
         allowStudentEvaluate = decodeField[Boolean](json, "allow_student_evaluate")
       )
-      _ <- IO(logger.info(s"更新后的权限信息: ${updatedPermissions}"))
-    } yield updatedPermissions
+    }
+  }
+
+  private def recordPermissionsChangeLog(updatedPermissions: Permissions)(using PlanContext): IO[Unit] = {
+    val operation = "UpdateSemesterPhasePermissions"
+    val details = s"""
+                     Updated permissions: 
+                     allowTeacherManage=${updatedPermissions.allowTeacherManage}, 
+                     allowStudentSelect=${updatedPermissions.allowStudentSelect}, 
+                     allowStudentDrop=${updatedPermissions.allowStudentDrop}, 
+                     allowStudentEvaluate=${updatedPermissions.allowStudentEvaluate}
+                   """.stripMargin
+    recordAdminOperationLog(operation, details).flatTap(_ => IO(logger.info("权限变更日志记录成功")))
   }
 }

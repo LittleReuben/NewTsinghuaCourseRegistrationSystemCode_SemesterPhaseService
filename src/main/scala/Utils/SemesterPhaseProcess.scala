@@ -1,74 +1,126 @@
-import Common.API.{PlanContext, Planner}
-import Common.DBAPI._
-import Common.Object.SqlParameter
-import Common.Object.ParameterList
-import Common.ServiceUtils.schemaName
-import cats.effect.IO
-import org.slf4j.LoggerFactory
+package Utils
+
+//process plan import 预留标志位，不要删除
+import io.circe._
+import io.circe.syntax._
+import io.circe.generic.auto._
 import org.joda.time.DateTime
+import Common.DBAPI._
+import Common.ServiceUtils.schemaName
+import org.slf4j.LoggerFactory
+import Objects.SystemLogService.SystemLogEntry
+import Common.API.PlanContext
+import Common.Object.SqlParameter
+import cats.effect.IO
+import cats.implicits._
+import Common.API.{PlanContext, Planner}
+import Common.Serialize.CustomColumnTypes.{decodeDateTime, encodeDateTime}
+import cats.implicits.*
+import Common.Serialize.CustomColumnTypes.{decodeDateTime,encodeDateTime}
 
-def SemesterPhaseProcess()(using PlanContext): IO[Unit] = {
-  logger.info(s"[SemesterPhaseProcess] 开始学期阶段管理逻辑处理")
-
-  val sqlQuery =
-    s"""
-      SELECT phase_id, phase_name, start_date, end_date
-      FROM ${schemaName}.semester_phase
-      WHERE phase_status = 'Active'
-    """
-  logger.info(s"[SemesterPhaseProcess] 查询学期阶段信息的 SQL 语句为：${sqlQuery}")
-
-  for {
-    _ <- IO(logger.info("[Step 1] 执行查询 SQL，获取当前学期阶段信息"))
-    rows <- readDBRows(sqlQuery, List.empty)
-
-    phaseDetails <- IO {
-      rows.map { json =>
-        val phaseId = decodeField[Int](json, "phase_id")
-        val phaseName = decodeField[String](json, "phase_name")
-        val startDate = new DateTime(decodeField[Long](json, "start_date"))
-        val endDate = new DateTime(decodeField[Long](json, "end_date"))
-        logger.debug(s"[Step 1.1] 解析学期阶段: phaseId=${phaseId}, phaseName=${phaseName}, startDate=${startDate}, endDate=${endDate}")
-        (phaseId, phaseName, startDate, endDate)
-      }
-    }
-
-    currentTimestamp <- IO {
-      val now = DateTime.now
-      logger.info(s"[Step 2] 获取当前时间戳: ${now}")
-      now
-    }
-
-    _ <- IO(logger.info("[Step 3] 根据阶段时间范围处理学期阶段状态"))
-    phaseStatusUpdates <- IO {
-      phaseDetails.map { case (phaseId, phaseName, startDate, endDate) =>
-        val newStatus =
-          if (currentTimestamp.isBefore(startDate)) "Upcoming"
-          else if (currentTimestamp.isAfter(endDate)) "Expired"
-          else "Ongoing"
-        logger.debug(s"[Step 3.1] 阶段ID=${phaseId}, 阶段名称=${phaseName} 的新状态为: ${newStatus}")
-        (phaseId, newStatus)
-      }
-    }
-
-    _ <- {
-      val updateSql =
+case object SemesterPhaseProcess {
+  private val logger = LoggerFactory.getLogger(getClass)
+  //process plan code 预留标志位，不要删除
+  
+  def recordAdminOperationLog(operation: String, details: String)(using PlanContext): IO[String] = {
+  // val logger = LoggerFactory.getLogger("recordAdminOperationLog")  // 同文后端处理: logger 统一
+    logger.info(s"开始记录超级管理员操作日志...")
+  
+    // Step 1: 验证输入参数是否有效
+    if (operation.trim.isEmpty) {
+      IO.raiseError(new IllegalArgumentException("operation参数不能为空"))
+    } else if (details.trim.isEmpty) {
+      IO.raiseError(new IllegalArgumentException("details参数不能为空"))
+    } else {
+      logger.info(s"输入参数验证通过，参数operation: ${operation}, 参数details: ${details}")
+  
+      // Step 2: 处理日志记录
+      val timestamp = DateTime.now
+      val userID = -1 // 超级管理员特定的userID，此处用-1作为示例
+  
+      logger.info(s"构造日志条目，时间戳为${timestamp}，操作类型为${operation}，详细信息为${details}")
+  
+      val systemLogEntry = SystemLogEntry(
+        logID = 0, // logID 的生成通常交由数据库或主键生成器，这里设为占位
+        timestamp = timestamp,
+        userID = userID,
+        action = operation,
+        details = details
+      )
+      val insertSQL =
         s"""
-          UPDATE ${schemaName}.semester_phase
-          SET phase_status = ?
-          WHERE phase_id = ?
+         INSERT INTO ${schemaName}.system_log (timestamp, user_id, action, details)
+         VALUES (?, ?, ?, ?)
         """
-      val updateParams = phaseStatusUpdates.map { case (phaseId, newStatus) =>
-        List(
-          SqlParameter("String", newStatus),
-          SqlParameter("Int", phaseId.toString)
-        )
+      val insertParams = List(
+        SqlParameter("DateTime", timestamp.getMillis.toString),
+        SqlParameter("Int", userID.toString),
+        SqlParameter("String", operation),
+        SqlParameter("String", details)
+      )
+  
+      for {
+        _ <- IO(logger.info(s"准备写入系统日志内容到数据库，SQL为：${insertSQL}"))
+        resultMessage <- writeDB(insertSQL, insertParams)
+        _ <- IO(logger.info(s"记录操作日志成功，数据库返回结果: ${resultMessage}"))
+      } yield {
+        logger.info(s"记录日志操作成功，返回结果消息：${resultMessage}")
+        resultMessage
       }
-
-      IO(logger.info("[Step 4] 批量更新学期阶段状态")) *>
-        writeDBList(updateSql, updateParams.map(ParameterList)).void
     }
-
-    _ <- IO(logger.info("[SemesterPhaseProcess] 学期阶段逻辑处理完成"))
-  } yield ()
+  }
+  
+  
+  def validateAdminToken(adminToken: String)(using PlanContext): IO[Boolean] = {
+    // Step 1: Log the start of the function
+    IO(logger.info(s"开始验证管理员 Token: ${adminToken}")) >>
+    
+    // Step 2: Look up the admin role using their token
+    readDBJsonOptional(
+      s"""
+         SELECT user_role 
+         FROM ${schemaName}.admin_table 
+         WHERE admin_token = ?;
+      """.stripMargin,
+      List(SqlParameter("String", adminToken))
+    ).flatMap {
+      case None =>
+        // Token does not exist in the database
+        IO(logger.error(s"管理员 Token 无效: ${adminToken}")) >>
+        IO(false)
+      case Some(adminJson) =>
+        // Token exists, get the user role
+        IO {
+          val userRole = decodeField[String](adminJson, "user_role")
+          logger.info(s"通过管理员 Token 获取用户角色: ${userRole}")
+          userRole
+        }.flatMap { userRole =>
+          if (userRole != "SuperAdmin") {
+            // Role is not SuperAdmin
+            IO(logger.error(s"用户角色不是超级管理员: ${userRole}")) >>
+            IO(false)
+          } else {
+            // Step 3: Verify permission based on the semester's current phase
+            readDBBoolean(
+              s"""
+                 SELECT allow_teacher_manage
+                 FROM ${schemaName}.semester_phase_table
+                 WHERE current_phase = ?;
+              """.stripMargin,
+              List(SqlParameter("Int", "1")) // Assuming you are checking for "current_phase = 1"
+            ).flatMap { allowTeacherManage =>
+              if (!allowTeacherManage) {
+                // Permission is not granted
+                IO(logger.error("当前学期阶段不允许管理")) >>
+                IO(false)
+              } else {
+                // Token is valid, role is SuperAdmin, and permission is granted
+                IO(logger.info("管理员 Token 验证通过，且用户角色为超级管理员")) >>
+                IO(true)
+              }
+            }
+          }
+        }
+    }
+  }
 }
