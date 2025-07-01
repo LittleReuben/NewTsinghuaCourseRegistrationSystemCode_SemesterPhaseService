@@ -1,50 +1,74 @@
 import Common.API.{PlanContext, Planner}
 import Common.DBAPI._
 import Common.Object.SqlParameter
+import Common.Object.ParameterList
 import Common.ServiceUtils.schemaName
 import cats.effect.IO
+import org.slf4j.LoggerFactory
 import org.joda.time.DateTime
 
 def SemesterPhaseProcess()(using PlanContext): IO[Unit] = {
-  val logger = LoggerFactory.getLogger("SemesterPhaseProcess")
+  logger.info(s"[SemesterPhaseProcess] 开始学期阶段管理逻辑处理")
 
-  logger.info(s"[SemesterPhaseProcess] 开始进行学期阶段管理相关逻辑处理...")
-
-  val fetchSemesterPhaseSQL = 
+  val sqlQuery =
     s"""
-    SELECT phase_id, phase_name, start_time, end_time, is_active
-    FROM ${schemaName}.semester_phase
-    WHERE CURRENT_TIMESTAMP BETWEEN start_time AND end_time;
+      SELECT phase_id, phase_name, start_date, end_date
+      FROM ${schemaName}.semester_phase
+      WHERE phase_status = 'Active'
     """
-
-  logger.info(s"[SemesterPhaseProcess] 准备执行查询学期阶段的SQL: ${fetchSemesterPhaseSQL}")
+  logger.info(s"[SemesterPhaseProcess] 查询学期阶段信息的 SQL 语句为：${sqlQuery}")
 
   for {
-    fetchedPhaseData <- readDBRows(fetchSemesterPhaseSQL, Nil) // 无参数查询
-    _ <- IO(logger.info(s"[SemesterPhaseProcess] 已查询到学期阶段信息，共 ${fetchedPhaseData.size} 条记录"))
+    _ <- IO(logger.info("[Step 1] 执行查询 SQL，获取当前学期阶段信息"))
+    rows <- readDBRows(sqlQuery, List.empty)
 
-    phaseInfo <- IO {
-      fetchedPhaseData.map { json =>
-        val phaseID = decodeField[Int](json, "phase_id")
+    phaseDetails <- IO {
+      rows.map { json =>
+        val phaseId = decodeField[Int](json, "phase_id")
         val phaseName = decodeField[String](json, "phase_name")
-        val startTime = decodeField[DateTime](json, "start_time")
-        val endTime = decodeField[DateTime](json, "end_time")
-        val isActive = decodeField[Boolean](json, "is_active")
-
-        logger.info(s"处理学期阶段信息: ID=${phaseID}, 名称=${phaseName}, 开始时间=${startTime}, 结束时间=${endTime}, 是否激活=${isActive}")
-        (phaseID, phaseName, startTime, endTime, isActive)
+        val startDate = new DateTime(decodeField[Long](json, "start_date"))
+        val endDate = new DateTime(decodeField[Long](json, "end_date"))
+        logger.debug(s"[Step 1.1] 解析学期阶段: phaseId=${phaseId}, phaseName=${phaseName}, startDate=${startDate}, endDate=${endDate}")
+        (phaseId, phaseName, startDate, endDate)
       }
     }
 
-    _ <- if (phaseInfo.nonEmpty) {
-      IO {
-        phaseInfo.foreach { case (phaseID, phaseName, startTime, endTime, isActive) =>
-          logger.info(s"学期阶段[${phaseName}] (ID: ${phaseID}) 在时间 ${startTime} 至 ${endTime} 内是激活状态: ${isActive}")
-        }
-      }
-    } else {
-      IO(logger.info("[SemesterPhaseProcess] 当前无学期阶段符合时间范围条件。"))
+    currentTimestamp <- IO {
+      val now = DateTime.now
+      logger.info(s"[Step 2] 获取当前时间戳: ${now}")
+      now
     }
 
+    _ <- IO(logger.info("[Step 3] 根据阶段时间范围处理学期阶段状态"))
+    phaseStatusUpdates <- IO {
+      phaseDetails.map { case (phaseId, phaseName, startDate, endDate) =>
+        val newStatus =
+          if (currentTimestamp.isBefore(startDate)) "Upcoming"
+          else if (currentTimestamp.isAfter(endDate)) "Expired"
+          else "Ongoing"
+        logger.debug(s"[Step 3.1] 阶段ID=${phaseId}, 阶段名称=${phaseName} 的新状态为: ${newStatus}")
+        (phaseId, newStatus)
+      }
+    }
+
+    _ <- {
+      val updateSql =
+        s"""
+          UPDATE ${schemaName}.semester_phase
+          SET phase_status = ?
+          WHERE phase_id = ?
+        """
+      val updateParams = phaseStatusUpdates.map { case (phaseId, newStatus) =>
+        List(
+          SqlParameter("String", newStatus),
+          SqlParameter("Int", phaseId.toString)
+        )
+      }
+
+      IO(logger.info("[Step 4] 批量更新学期阶段状态")) *>
+        writeDBList(updateSql, updateParams.map(ParameterList)).void
+    }
+
+    _ <- IO(logger.info("[SemesterPhaseProcess] 学期阶段逻辑处理完成"))
   } yield ()
 }
