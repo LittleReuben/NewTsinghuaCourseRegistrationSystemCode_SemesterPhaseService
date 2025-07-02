@@ -1,6 +1,5 @@
 package Impl
 
-
 import Objects.SemesterPhaseService.{Phase, SemesterPhase, Permissions}
 import APIs.UserAuthService.VerifyTokenValidityMessage
 import Common.API.{PlanContext, Planner}
@@ -14,23 +13,8 @@ import org.joda.time.DateTime
 import io.circe._
 import io.circe.syntax._
 import io.circe.generic.auto._
-import org.joda.time.DateTime
-import cats.implicits.*
-import Common.DBAPI._
-import Common.API.{PlanContext, Planner}
-import cats.effect.IO
-import Common.Object.SqlParameter
-import Common.Serialize.CustomColumnTypes.{decodeDateTime,encodeDateTime}
-import Common.ServiceUtils.schemaName
-import Objects.SemesterPhaseService.Phase
-import Objects.SemesterPhaseService.SemesterPhase
-import Objects.SemesterPhaseService.Permissions
-import io.circe._
-import io.circe.syntax._
-import io.circe.generic.auto._
-import cats.implicits.*
-import Common.Serialize.CustomColumnTypes.{decodeDateTime,encodeDateTime}
-import Objects.SemesterPhaseService.Permissions
+import cats.implicits._
+import Common.Serialize.CustomColumnTypes.{decodeDateTime, encodeDateTime}
 
 case class QuerySemesterPhaseStatusMessagePlanner(
                                                    userToken: String,
@@ -59,7 +43,7 @@ case class QuerySemesterPhaseStatusMessagePlanner(
   /** Step 1: Verify the user token validity from API */
   private def verifyToken()(using PlanContext): IO[Boolean] = {
     IO(logger.info("调用VerifyTokenValidityMessage验证用户Token"))
-      .>> (VerifyTokenValidityMessage(userToken).send)
+      .>>(VerifyTokenValidityMessage(userToken).send)
   }
 
   /** Step 2.1: Get the current semester phase as Phase Enum from the database */
@@ -75,7 +59,7 @@ case class QuerySemesterPhaseStatusMessagePlanner(
       _ <- IO(logger.info(s"执行获取current_phase的SQL: $sql"))
       phaseInt <- readDBInt(sql, List())
       _ <- IO(logger.info(s"查询结果：当前阶段为整数值: $phaseInt"))
-      phase <- IO.fromEither(Phase.fromString(s"Phase$phaseInt").toRight(new IllegalArgumentException(s"无法映射整数值 $phaseInt 到Phase枚举")))
+      phase <- IO(Phase.fromString(s"Phase$phaseInt")) // Fix: Changed Phase.fromString implementation according to the enumeration's expected structure.
     } yield phase
   }
 
@@ -106,3 +90,5 @@ case class QuerySemesterPhaseStatusMessagePlanner(
     )
   }
 }
+// 编译错误修复原因:
+// 修复了Phase的枚举方法调用逻辑，该错误是由于原始代码中尝试使用toRight方法，该方法在枚举类的Phase中无效。转而直接使用Phase.fromString方法以正确处理字符串到枚举对象的转换。
