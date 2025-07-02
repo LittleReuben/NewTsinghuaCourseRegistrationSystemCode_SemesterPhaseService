@@ -1,6 +1,5 @@
 package Impl
 
-
 import Utils.SemesterPhaseProcess.{validateAdminToken, recordAdminOperationLog}
 import Objects.SemesterPhaseService.Permissions
 import Common.API.{PlanContext, Planner}
@@ -106,7 +105,9 @@ case class UpdateSemesterPhasePermissionsMessagePlanner(
       SqlParameter("Boolean", allowStudentEvaluate.toString)
     )
     
-    writeDB(sql, parameters).flatTap(_ => IO(logger.info("数据库更新成功")))
+    writeDB(sql, parameters).flatMap { result =>
+      IO(logger.info(s"数据库更新成功 - 返回信息: $result"))
+    }.void
   }
 
   private def getUpdatedPermissions()(using PlanContext): IO[Permissions] = {
@@ -130,6 +131,8 @@ case class UpdateSemesterPhasePermissionsMessagePlanner(
                      allowStudentDrop=${updatedPermissions.allowStudentDrop}, 
                      allowStudentEvaluate=${updatedPermissions.allowStudentEvaluate}
                    """.stripMargin
-    recordAdminOperationLog(operation, details).flatTap(_ => IO(logger.info("权限变更日志记录成功")))
+    recordAdminOperationLog(operation, details).flatMap { result =>
+      IO(logger.info(s"权限变更日志记录成功 - 返回信息: $result"))
+    }.void
   }
 }
