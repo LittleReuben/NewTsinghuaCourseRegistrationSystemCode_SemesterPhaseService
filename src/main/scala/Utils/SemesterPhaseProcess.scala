@@ -70,57 +70,61 @@ case object SemesterPhaseProcess {
     }
   }
   
-  
   def validateAdminToken(adminToken: String)(using PlanContext): IO[Boolean] = {
+  // val logger = LoggerFactory.getLogger(this.getClass)  // 同文后端处理: logger 统一
+  
     // Step 1: Log the start of the function
-    IO(logger.info(s"开始验证管理员 Token: ${adminToken}")) >>
-    
-    // Step 2: Look up the admin role using their token
-    readDBJsonOptional(
-      s"""
+    IO(logger.info(s"开始验证管理员 Token: ${adminToken}")).flatMap { _ =>
+  
+      // Step 2: Look up the admin role using their token
+      readDBJsonOptional(
+        s"""
          SELECT user_role 
          FROM ${schemaName}.admin_table 
          WHERE admin_token = ?;
-      """.stripMargin,
-      List(SqlParameter("String", adminToken))
-    ).flatMap {
-      case None =>
-        // Token does not exist in the database
-        IO(logger.error(s"管理员 Token 无效: ${adminToken}")) >>
-        IO(false)
-      case Some(adminJson) =>
-        // Token exists, get the user role
-        IO {
-          val userRole = decodeField[String](adminJson, "user_role")
-          logger.info(s"通过管理员 Token 获取用户角色: ${userRole}")
-          userRole
-        }.flatMap { userRole =>
-          if (userRole != "SuperAdmin") {
-            // Role is not SuperAdmin
-            IO(logger.error(s"用户角色不是超级管理员: ${userRole}")) >>
-            IO(false)
-          } else {
-            // Step 3: Verify permission based on the semester's current phase
-            readDBBoolean(
-              s"""
+        """.stripMargin,
+        List(SqlParameter("String", adminToken))
+      ).flatMap {
+        case None =>
+          // Token does not exist in the database
+          IO(logger.error(s"管理员 Token 无效: ${adminToken}")) >>
+          IO(false)
+        case Some(adminJson) =>
+          // Token exists, get the user role
+          IO {
+            val userRole = decodeField[String](adminJson, "user_role")
+            logger.info(s"通过管理员 Token 获取用户角色: ${userRole}")
+            userRole
+          }.flatMap { userRole =>
+            if (userRole != "SuperAdmin") {
+              // Role is not SuperAdmin
+              IO(logger.error(s"用户角色不是超级管理员: ${userRole}")) >>
+              IO(false)
+            } else {
+              // Step 3: Verify permission based on the semester's current phase
+              readDBBoolean(
+                s"""
                  SELECT allow_teacher_manage
                  FROM ${schemaName}.semester_phase_table
                  WHERE current_phase = ?;
-              """.stripMargin,
-              List(SqlParameter("Int", "1")) // Assuming you are checking for "current_phase = 1"
-            ).flatMap { allowTeacherManage =>
-              if (!allowTeacherManage) {
-                // Permission is not granted
-                IO(logger.error("当前学期阶段不允许管理")) >>
-                IO(false)
-              } else {
-                // Token is valid, role is SuperAdmin, and permission is granted
-                IO(logger.info("管理员 Token 验证通过，且用户角色为超级管理员")) >>
-                IO(true)
+                """.stripMargin,
+                List(SqlParameter("Int", "1")) // Assuming you are checking for "current_phase = 1"
+              ).flatMap { allowTeacherManage =>
+                if (!allowTeacherManage) {
+                  // Permission is not granted
+                  IO(logger.error("当前学期阶段不允许管理")) >>
+                  IO(false)
+                } else {
+                  // Token is valid, role is SuperAdmin, and permission is granted
+                  IO(logger.info("管理员 Token 验证通过，且用户角色为超级管理员")) >>
+                  IO(true)
+                }
               }
             }
           }
-        }
+      }
     }
   }
+  
+  // 模型修复的编译错误: `IO(logger.info(s"开始验证管理员 Token: ${adminToken}")) >>` 中的后缀运算符语法问题。Scala 3 中，使用>>需要明确表达为flatMap链式结构或者显式提供作用域。
 }
