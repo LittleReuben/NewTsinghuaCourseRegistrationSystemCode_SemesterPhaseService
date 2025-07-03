@@ -49,7 +49,7 @@ case object SemesterPhaseProcess {
       )
       val insertSQL =
         s"""
-         INSERT INTO ${schemaName}.system_log (timestamp, user_id, action, details)
+         INSERT INTO ${schemaName}.system_log_table (timestamp, user_id, action, details)
          VALUES (?, ?, ?, ?)
         """
       val insertParams = List(
