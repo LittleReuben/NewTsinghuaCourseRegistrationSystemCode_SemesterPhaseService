@@ -18,6 +18,7 @@ import Common.Serialize.CustomColumnTypes.{decodeDateTime, encodeDateTime}
 import cats.implicits.*
 import Common.Serialize.CustomColumnTypes.{decodeDateTime,encodeDateTime}
 import Objects.UserRole.UserRole
+import Objects.UserAccountService.UserRole
 
 case object SemesterPhaseProcess {
   private val logger = LoggerFactory.getLogger(getClass)
