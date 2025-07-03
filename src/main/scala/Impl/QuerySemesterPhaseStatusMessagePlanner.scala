@@ -59,7 +59,7 @@ case class QuerySemesterPhaseStatusMessagePlanner(
       _ <- IO(logger.info(s"执行获取current_phase的SQL: $sql"))
       phaseInt <- readDBInt(sql, List())
       _ <- IO(logger.info(s"查询结果：当前阶段为整数值: $phaseInt"))
-      phase <- IO(Phase.fromString(s"Phase$phaseInt")) // Fix: Changed Phase.fromString implementation according to the enumeration's expected structure.
+      phase <- IO(Phase.fromString(s"phase$phaseInt")) // Fix: Changed Phase.fromString implementation according to the enumeration's expected structure.
     } yield phase
   }
 
