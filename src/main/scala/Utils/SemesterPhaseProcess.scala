@@ -17,6 +17,7 @@ import Common.API.{PlanContext, Planner}
 import Common.Serialize.CustomColumnTypes.{decodeDateTime, encodeDateTime}
 import cats.implicits.*
 import Common.Serialize.CustomColumnTypes.{decodeDateTime,encodeDateTime}
+import Objects.UserRole.UserRole
 
 case object SemesterPhaseProcess {
   private val logger = LoggerFactory.getLogger(getClass)
@@ -70,61 +71,48 @@ case object SemesterPhaseProcess {
     }
   }
   
+  
   def validateAdminToken(adminToken: String)(using PlanContext): IO[Boolean] = {
-  // val logger = LoggerFactory.getLogger(this.getClass)  // 同文后端处理: logger 统一
+  // val logger = LoggerFactory.getLogger("AdminTokenValidation")  // 同文后端处理: logger 统一
+    logger.info(s"开始验证管理员 Token: ${adminToken}")
   
-    // Step 1: Log the start of the function
-    IO(logger.info(s"开始验证管理员 Token: ${adminToken}")).flatMap { _ =>
+    val sqlUserIdLookup = s"SELECT user_id FROM ${schemaName}.user_token_table WHERE token = ?"
+    val sqlRoleCheck = s"SELECT role FROM ${schemaName}.user_account_table WHERE user_id = ?"
   
-      // Step 2: Look up the admin role using their token
-      readDBJsonOptional(
-        s"""
-         SELECT user_role 
-         FROM ${schemaName}.admin_table 
-         WHERE admin_token = ?;
-        """.stripMargin,
-        List(SqlParameter("String", adminToken))
-      ).flatMap {
+    for {
+      _ <- IO(logger.info(s"在 user_token_table 中查找 token 是否存在，SQL: ${sqlUserIdLookup}"))
+      optionalUserJson <- readDBJsonOptional(sqlUserIdLookup, List(SqlParameter("String", adminToken)))
+  
+      // 如果未找到对应的用户记录，直接返回 false
+      isValid <- optionalUserJson match {
         case None =>
-          // Token does not exist in the database
-          IO(logger.error(s"管理员 Token 无效: ${adminToken}")) >>
+          logger.info(s"Token ${adminToken} 未找到对应的用户记录，验证失败")
           IO(false)
-        case Some(adminJson) =>
-          // Token exists, get the user role
-          IO {
-            val userRole = decodeField[String](adminJson, "user_role")
-            logger.info(s"通过管理员 Token 获取用户角色: ${userRole}")
-            userRole
-          }.flatMap { userRole =>
-            if (userRole != "SuperAdmin") {
-              // Role is not SuperAdmin
-              IO(logger.error(s"用户角色不是超级管理员: ${userRole}")) >>
-              IO(false)
-            } else {
-              // Step 3: Verify permission based on the semester's current phase
-              readDBBoolean(
-                s"""
-                 SELECT allow_teacher_manage
-                 FROM ${schemaName}.semester_phase_table
-                 WHERE current_phase = ?;
-                """.stripMargin,
-                List(SqlParameter("Int", "1")) // Assuming you are checking for "current_phase = 1"
-              ).flatMap { allowTeacherManage =>
-                if (!allowTeacherManage) {
-                  // Permission is not granted
-                  IO(logger.error("当前学期阶段不允许管理")) >>
-                  IO(false)
-                } else {
-                  // Token is valid, role is SuperAdmin, and permission is granted
-                  IO(logger.info("管理员 Token 验证通过，且用户角色为超级管理员")) >>
-                  IO(true)
-                }
-              }
-            }
-          }
-      }
-    }
-  }
   
-  // 模型修复的编译错误: `IO(logger.info(s"开始验证管理员 Token: ${adminToken}")) >>` 中的后缀运算符语法问题。Scala 3 中，使用>>需要明确表达为flatMap链式结构或者显式提供作用域。
+        case Some(userJson) =>
+          val userID = decodeField[Int](userJson, "user_id")
+          logger.info(s"Token ${adminToken} 对应的 user_id 为: ${userID}")
+  
+          logger.info(s"在 user_account_table 中查找用户的角色，SQL: ${sqlRoleCheck}")
+          for {
+            optionalRoleJson <- readDBJsonOptional(sqlRoleCheck, List(SqlParameter("Int", userID.toString)))
+  
+            // 如果未找到对应角色记录，返回 false；否则判断角色是否为超级管理员
+            result <- optionalRoleJson match {
+              case None =>
+                logger.info(s"user_id ${userID} 未找到角色记录，验证失败")
+                IO(false)
+  
+              case Some(roleJson) =>
+                val role = UserRole.fromString(decodeField[String](roleJson, "role"))
+                logger.info(s"user_id ${userID} 的角色为: ${role.toString}")
+                IO(role == UserRole.SuperAdmin)
+            }
+          } yield result
+      }
+    } yield isValid
+  }
+  // 修复内容:
+  // 1. 将 user_id 的数据类型从 String 更改为 Int，并使用 decodeField[Int] 提取数据。
+  // 2. 使用 UserRole.fromString 方法转换 decodeField 提取后的 role 为枚举类型，并将其与 UserRole.SuperAdmin 比较。
 }
