@@ -84,7 +84,7 @@ case class RunCourseRandomSelectionAndMoveToNextPhaseMessagePlanner(
 
   private def getCourseDetailsByID(courseID: Int)(using PlanContext): IO[CourseInfo] = {
     import APIs.CourseManagementService.QueryCourseByIDMessage
-    QueryCourseByIDMessage(courseID).send
+    QueryCourseByIDMessage(adminToken, courseID).send
   }
 
   private def randomlyAssignStudents(course: CourseInfo)(using PlanContext): IO[Unit] = {
