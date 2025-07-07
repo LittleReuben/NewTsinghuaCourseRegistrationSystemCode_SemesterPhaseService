@@ -18,6 +18,7 @@ import cats.effect.IO
 import cats.syntax.all.*
 import org.slf4j.LoggerFactory
 import org.joda.time.DateTime
+import io.circe.generic.auto.deriveEncoder
 
 case class RunCourseRandomSelectionAndMoveToNextPhaseMessagePlanner(
     adminToken: String,
