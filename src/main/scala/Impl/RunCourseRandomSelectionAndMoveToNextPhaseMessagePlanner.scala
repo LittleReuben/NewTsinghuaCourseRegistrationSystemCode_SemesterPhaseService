@@ -109,16 +109,16 @@ case class RunCourseRandomSelectionAndMoveToNextPhaseMessagePlanner(
 
   private def insertIntoCourseSelection(courseID: Int, students: List[Int])(using PlanContext): IO[Unit] = {
     val query = s"INSERT INTO ${schemaName}.course_selection_table (course_id, student_id) VALUES (?, ?);"
-    val params = students.map(userId => ParameterList(List(SqlParameter("Int", courseID.toString), SqlParameter("Int", userId.toString))))
+    val params = students.map(userID => ParameterList(List(SqlParameter("Int", courseID.toString), SqlParameter("Int", userID.toString))))
     writeDBList(query, params).void
   }
 
   private def insertIntoWaitingList(courseID: Int, students: List[Int])(using PlanContext): IO[Unit] = {
     val query = s"INSERT INTO ${schemaName}.waiting_list_table (course_id, student_id, position) VALUES (?, ?, ?);"
-    val params = students.zipWithIndex.map { case (userId, position) =>
+    val params = students.zipWithIndex.map { case (userID, position) =>
       ParameterList(List(
         SqlParameter("Int", courseID.toString),
-        SqlParameter("Int", userId.toString),
+        SqlParameter("Int", userID.toString),
         SqlParameter("Int", (position + 1).toString)
       ))
     }
