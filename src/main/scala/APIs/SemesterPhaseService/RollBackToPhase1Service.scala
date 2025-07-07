@@ -20,7 +20,7 @@ import java.util.UUID
 
 /**
  * RollBackToPhase1Service
- * desc: 
+ * desc: 清空所有选课信息，保留用户与开课信息
  * @param adminToken: String (管理员token)
  */
 
