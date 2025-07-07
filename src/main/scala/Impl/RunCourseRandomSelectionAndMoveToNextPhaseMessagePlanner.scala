@@ -95,8 +95,9 @@ case class RunCourseRandomSelectionAndMoveToNextPhaseMessagePlanner(
       _ <- IO(logger.info(s"课程ID：${course.courseID}, 总学生数：${students.length}"))
       shuffled <- IO(scala.util.Random.shuffle(students))
       (selected, waiting) = shuffled.splitAt(course.courseCapacity.min(students.size))
-      _ <- insertIntoCourseSelection(course.courseID, selected)
-      _ <- if (waiting.isEmpty) IO(logger.info("没有学生进入等待名单，跳过插入操作")) 
+      _ <- if (selected.isEmpty) IO(logger.info("没有学生选课，跳过selection插入操作"))
+           else insertIntoCourseSelection(course.courseID, selected)
+      _ <- if (waiting.isEmpty) IO(logger.info("没有学生进入等待名单，跳过waiting插入操作")) 
            else insertIntoWaitingList(course.courseID, waiting)
     } yield ()
   }
