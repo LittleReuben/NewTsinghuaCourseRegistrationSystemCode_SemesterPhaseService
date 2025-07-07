@@ -85,7 +85,7 @@ case class RunCourseRandomSelectionAndMoveToNextPhaseMessagePlanner(
 
   private def getCourseDetailsByID(courseID: Int)(using PlanContext): IO[CourseInfo] = {
     import APIs.CourseManagementService.QueryCourseByIDMessage
-    QueryCourseByIDMessage(adminToken, courseID).send
+    QueryCourseByIDMessage(adminToken, courseID).send.map(json => decodeType[CourseInfo](json))
   }
 
   private def randomlyAssignStudents(course: CourseInfo)(using PlanContext): IO[Unit] = {
@@ -145,7 +145,6 @@ case class RunCourseRandomSelectionAndMoveToNextPhaseMessagePlanner(
     writeDB(query, List(SqlParameter("Int", phase.toString))).void
   }
 }
+
 // 修复内容:
-// 修复方案：
-// 添加 `import cats.syntax.all.*` 修复 `courses <- courseIDs.map(getCourseDetailsByID).sequence` 编译错误。
-// 模型无法修复其他潜在问题的原因：目前代码中的编译错误已修复，其他潜在问题或功能逻辑未声明无法验证其正确性。
+// 修复 `getCourseDetailsByID` 方法：由于 QueryCourseByIDMessage.send 返回的类型需要 decode 成 CourseInfo，因此添加了 `.map(json => decodeType[CourseInfo](json)` 以实现正确的数据转换。
