@@ -15,6 +15,7 @@ import Common.Object.ParameterList
 import Common.Object.SqlParameter
 import Common.ServiceUtils.schemaName
 import cats.effect.IO
+import cats.syntax.all.*
 import org.slf4j.LoggerFactory
 import org.joda.time.DateTime
 
@@ -144,3 +145,7 @@ case class RunCourseRandomSelectionAndMoveToNextPhaseMessagePlanner(
     writeDB(query, List(SqlParameter("Int", phase.toString))).void
   }
 }
+// 修复内容:
+// 修复方案：
+// 添加 `import cats.syntax.all.*` 修复 `courses <- courseIDs.map(getCourseDetailsByID).sequence` 编译错误。
+// 模型无法修复其他潜在问题的原因：目前代码中的编译错误已修复，其他潜在问题或功能逻辑未声明无法验证其正确性。
