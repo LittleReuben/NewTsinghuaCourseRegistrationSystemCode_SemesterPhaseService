@@ -86,7 +86,7 @@ case class RunCourseRandomSelectionAndMoveToNextPhaseMessagePlanner(
 
   private def getCourseDetailsByID(courseID: Int)(using PlanContext): IO[CourseInfo] = {
     import APIs.CourseManagementService.QueryCourseByIDMessage
-    QueryCourseByIDMessage(adminToken, courseID).send
+    QueryCourseByIDMessage(adminToken, courseID).send.map(json => decodeType[CourseInfo](json))
   }
 
   private def randomlyAssignStudents(course: CourseInfo)(using PlanContext): IO[Unit] = {
@@ -96,7 +96,8 @@ case class RunCourseRandomSelectionAndMoveToNextPhaseMessagePlanner(
       shuffled <- IO(scala.util.Random.shuffle(students))
       (selected, waiting) = shuffled.splitAt(course.courseCapacity.min(students.size))
       _ <- insertIntoCourseSelection(course.courseID, selected)
-      _ <- insertIntoWaitingList(course.courseID, waiting)
+      _ <- if (waiting.isEmpty) IO(logger.info("没有学生进入等待名单，跳过插入操作")) 
+           else insertIntoWaitingList(course.courseID, waiting)
     } yield ()
   }
 
@@ -146,6 +147,3 @@ case class RunCourseRandomSelectionAndMoveToNextPhaseMessagePlanner(
     writeDB(query, List(SqlParameter("Int", phase.toString))).void
   }
 }
-
-// 修复内容:
-// 修复 `getCourseDetailsByID` 方法：由于 QueryCourseByIDMessage.send 返回的类型需要 decode 成 CourseInfo，因此添加了 `.map(json => decodeType[CourseInfo](json)` 以实现正确的数据转换。
