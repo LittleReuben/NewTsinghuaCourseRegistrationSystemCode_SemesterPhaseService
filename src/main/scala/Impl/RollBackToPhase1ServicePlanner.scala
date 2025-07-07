@@ -53,11 +53,6 @@ case class RollBackToPhase1ServicePlanner(
     } yield true
   }
 
-  private def verifyToken()(using PlanContext): IO[Boolean] = {
-    logger.info(s"验证Token: ${adminToken}")
-    VerifyTokenValidityMessage(adminToken).send
-  }
-
   private def clearCourseTables()(using PlanContext): IO[Unit] = {
     val tables = List(
       "course_preselection_table",
