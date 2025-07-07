@@ -26,7 +26,7 @@ import io.circe.syntax._
 import io.circe.generic.auto._
 import Common.Serialize.CustomColumnTypes.{decodeDateTime,encodeDateTime}
 
-case class RollBackToPhase1ServicePlanner(
+case class RollBackToPhase1MessagePlanner(
                                            adminToken: String,
                                            override val planContext: PlanContext
                                          ) extends Planner[Boolean] {

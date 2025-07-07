@@ -17,6 +17,7 @@ import scala.collection.concurrent.TrieMap
 import Common.Serialize.CustomColumnTypes.*
 import Impl.UpdateSemesterPhasePermissionsMessagePlanner
 import Impl.QuerySemesterPhaseStatusMessagePlanner
+import Impl.RollBackToPhase1MessagePlanner
 import Impl.RunCourseRandomSelectionAndMoveToNextPhaseMessagePlanner
 import Common.API.TraceID
 import org.joda.time.DateTime
@@ -40,6 +41,13 @@ object Routes:
         IO(
           decode[QuerySemesterPhaseStatusMessagePlanner](str) match
             case Left(err) => err.printStackTrace(); throw new Exception(s"Invalid JSON for QuerySemesterPhaseStatusMessage[${err.getMessage}]")
+            case Right(value) => value.fullPlan.map(_.asJson.toString)
+        ).flatten
+
+      case "RollBackToPhase1Message" =>
+        IO(
+          decode[RollBackToPhase1MessagePlanner](str) match
+            case Left(err) => err.printStackTrace(); throw new Exception(s"Invalid JSON for RollBackToPhase1Message[${err.getMessage}]")
             case Right(value) => value.fullPlan.map(_.asJson.toString)
         ).flatten
        
