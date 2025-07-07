@@ -1,6 +1,5 @@
 package Impl
 
-
 import Utils.SemesterPhaseProcess.validateAdminToken
 import Objects.CourseManagementService.CourseTime
 import Objects.CourseManagementService.TimePeriod
@@ -18,24 +17,6 @@ import Common.ServiceUtils.schemaName
 import cats.effect.IO
 import org.slf4j.LoggerFactory
 import org.joda.time.DateTime
-import io.circe._
-import io.circe.syntax._
-import io.circe.generic.auto._
-import org.joda.time.DateTime
-import cats.implicits.*
-import Common.DBAPI._
-import Common.API.{PlanContext, Planner}
-import cats.effect.IO
-import Common.Object.SqlParameter
-import Common.Serialize.CustomColumnTypes.{decodeDateTime,encodeDateTime}
-import Common.ServiceUtils.schemaName
-import Objects.SemesterPhaseService.Permissions
-import Objects.CourseManagementService.{CourseInfo, DayOfWeek, CourseTime, TimePeriod}
-import io.circe._
-import io.circe.syntax._
-import io.circe.generic.auto._
-import cats.implicits.*
-import Common.Serialize.CustomColumnTypes.{decodeDateTime,encodeDateTime}
 
 case class RunCourseRandomSelectionAndMoveToNextPhaseMessagePlanner(
     adminToken: String,
@@ -68,7 +49,6 @@ case class RunCourseRandomSelectionAndMoveToNextPhaseMessagePlanner(
 
       // Step 7: Log the operation
       _ <- recordAdminOperationLog("Perform Course Random Selection", "抽签成功并阶段切换完成！")
-
     } yield "抽签成功并阶段切换完成！"
   }
 
@@ -89,15 +69,22 @@ case class RunCourseRandomSelectionAndMoveToNextPhaseMessagePlanner(
 
   private def performRandomSelection()(using PlanContext): IO[Unit] = {
     for {
-      courses <- getAllCourses()
-      _ <- IO(logger.info(s"共读取到${courses.length}门课程"))
+      courseIDs <- getAllCourseIDs()
+      _ <- IO(logger.info(s"共读取到${courseIDs.length}门课程ID"))
+      courses <- courseIDs.map(getCourseDetailsByID).sequence
+      _ <- IO(logger.info(s"查询到具体课程信息，共 ${courses.length} 门课程"))
       _ <- courses.map(randomlyAssignStudents).sequence_
     } yield ()
   }
 
-  private def getAllCourses()(using PlanContext): IO[List[CourseInfo]] = {
-    val query = s"SELECT * FROM ${schemaName}.course_info;"
-    readDBRows(query, List.empty).map(_.map(decodeType[CourseInfo]))
+  private def getAllCourseIDs()(using PlanContext): IO[List[Int]] = {
+    val query = s"SELECT course_id FROM ${schemaName}.course_table;"
+    readDBRows(query, List.empty).map(_.map(decodeField[Int](_, "course_id")))
+  }
+
+  private def getCourseDetailsByID(courseID: Int)(using PlanContext): IO[CourseInfo] = {
+    import APIs.CourseManagementService.QueryCourseByIDMessage
+    QueryCourseByIDMessage(courseID).send
   }
 
   private def randomlyAssignStudents(course: CourseInfo)(using PlanContext): IO[Unit] = {
