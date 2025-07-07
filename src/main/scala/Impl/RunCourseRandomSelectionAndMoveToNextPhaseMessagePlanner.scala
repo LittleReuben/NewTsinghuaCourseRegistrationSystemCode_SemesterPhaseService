@@ -101,18 +101,18 @@ case class RunCourseRandomSelectionAndMoveToNextPhaseMessagePlanner(
   }
 
   private def getPreselectedStudents(courseID: Int)(using PlanContext): IO[List[Int]] = {
-    val query = s"SELECT user_id FROM ${schemaName}.course_preselection_table WHERE course_id = ?;"
-    readDBRows(query, List(SqlParameter("Int", courseID.toString))).map(_.map(decodeField[Int](_, "user_id")))
+    val query = s"SELECT student_id FROM ${schemaName}.course_preselection_table WHERE course_id = ?;"
+    readDBRows(query, List(SqlParameter("Int", courseID.toString))).map(_.map(decodeField[Int](_, "student_id")))
   }
 
   private def insertIntoCourseSelection(courseID: Int, students: List[Int])(using PlanContext): IO[Unit] = {
-    val query = s"INSERT INTO ${schemaName}.course_selection_table (course_id, user_id) VALUES (?, ?);"
+    val query = s"INSERT INTO ${schemaName}.course_selection_table (course_id, student_id) VALUES (?, ?);"
     val params = students.map(userId => ParameterList(List(SqlParameter("Int", courseID.toString), SqlParameter("Int", userId.toString))))
     writeDBList(query, params).void
   }
 
   private def insertIntoWaitingList(courseID: Int, students: List[Int])(using PlanContext): IO[Unit] = {
-    val query = s"INSERT INTO ${schemaName}.waiting_list_table (course_id, user_id, position) VALUES (?, ?, ?);"
+    val query = s"INSERT INTO ${schemaName}.waiting_list_table (course_id, student_id, position) VALUES (?, ?, ?);"
     val params = students.zipWithIndex.map { case (userId, position) =>
       ParameterList(List(
         SqlParameter("Int", courseID.toString),
