@@ -26,7 +26,7 @@ import java.util.UUID
 
 case class RollBackToPhase1Service(
   adminToken: String
-) extends API[](SemesterPhaseServiceCode)
+) extends API[Boolean](SemesterPhaseServiceCode)
 
 
 
