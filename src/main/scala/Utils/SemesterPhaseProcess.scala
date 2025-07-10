@@ -37,7 +37,7 @@ case object SemesterPhaseProcess {
   
       // Step 2: 处理日志记录
       val timestamp = DateTime.now
-      val userID = -1 // 超级管理员特定的userID，此处用-1作为示例
+      val userID = 1 // 超级管理员特定的userID，此处用-1作为示例
   
       logger.info(s"构造日志条目，时间戳为${timestamp}，操作类型为${operation}，详细信息为${details}")
   
