@@ -123,14 +123,8 @@ case class UpdateSemesterPhasePermissionsMessagePlanner(
   }
 
   private def recordPermissionsChangeLog(updatedPermissions: Permissions)(using PlanContext): IO[Unit] = {
-    val operation = "UpdateSemesterPhasePermissions"
-    val details = s"""
-                     Updated permissions: 
-                     allowTeacherManage=${updatedPermissions.allowTeacherManage}, 
-                     allowStudentSelect=${updatedPermissions.allowStudentSelect}, 
-                     allowStudentDrop=${updatedPermissions.allowStudentDrop}, 
-                     allowStudentEvaluate=${updatedPermissions.allowStudentEvaluate}
-                   """.stripMargin
+    val operation = "更新权限"
+    val details = s"""老师管理=${updatedPermissions.allowTeacherManage}, 学生选课=${updatedPermissions.allowStudentSelect}, 学生退课=${updatedPermissions.allowStudentDrop}, 学生评价=${updatedPermissions.allowStudentEvaluate}""".stripMargin
     recordAdminOperationLog(operation, details).flatMap { result =>
       IO(logger.info(s"权限变更日志记录成功 - 返回信息: $result"))
     }.void
