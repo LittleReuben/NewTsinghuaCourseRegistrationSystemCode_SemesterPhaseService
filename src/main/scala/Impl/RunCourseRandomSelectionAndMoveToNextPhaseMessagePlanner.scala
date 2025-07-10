@@ -50,7 +50,7 @@ case class RunCourseRandomSelectionAndMoveToNextPhaseMessagePlanner(
       _ <- moveToPhase2AndClosePermissions()
 
       // Step 7: Log the operation
-      _ <- recordAdminOperationLog("Perform Course Random Selection", "抽签成功并阶段切换完成！")
+      _ <- recordAdminOperationLog("抽签并切换到阶段2", "")
     } yield "抽签成功并阶段切换完成！"
   }
 
