@@ -1,6 +1,7 @@
 package Impl
 
 import Utils.SemesterPhaseProcess.validateAdminToken
+import Utils.SemesterPhaseProcess.recordAdminOperationLog
 import Common.API.{PlanContext, Planner}
 import Common.DBAPI._
 import Common.Object.SqlParameter
@@ -50,6 +51,8 @@ case class RollBackToPhase1MessagePlanner(
       // Step 3: Update the current phase to phase 1 in SemesterPhaseTable
       _ <- IO(logger.info("[Step 3] 更新学期阶段内容为Phase1"))
       _ <- updateCurrentPhase()
+      
+      _ <- recordAdminOperationLog("退回阶段1", "")
     } yield true
   }
 
